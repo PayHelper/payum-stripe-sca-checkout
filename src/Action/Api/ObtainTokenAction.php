@@ -1,4 +1,5 @@
 <?php
+
 namespace Combodo\StripeV3\Action\Api;
 
 use Payum\Core\Action\ActionInterface;
@@ -10,11 +11,11 @@ use Payum\Core\Exception\RequestNotSupportedException;
 use Payum\Core\GatewayAwareInterface;
 use Payum\Core\GatewayAwareTrait;
 use Payum\Core\Reply\HttpResponse;
-use Payum\Core\Request\GetHttpRequest;
 use Payum\Core\Request\RenderTemplate;
 use Combodo\StripeV3\Keys;
 use Combodo\StripeV3\Request\Api\ObtainToken;
 use Stripe\Checkout\Session;
+use Stripe\Plan;
 use Stripe\Stripe;
 
 /**
@@ -51,7 +52,7 @@ class ObtainTokenAction implements ActionInterface, GatewayAwareInterface, ApiAw
     }
 
     /**
-     * {@inheritDoc}
+     * {@inheritdoc}
      */
     public function setApi($api)
     {
@@ -62,11 +63,11 @@ class ObtainTokenAction implements ActionInterface, GatewayAwareInterface, ApiAw
     }
 
     /**
-     * {@inheritDoc}
+     * {@inheritdoc}
      */
     public function execute($request)
     {
-        /** @var $request ObtainToken */
+        /* @var $request ObtainToken */
         RequestNotSupportedException::assertSupports($this, $request);
 
         $model = ArrayObject::ensureArrayObject($request->getModel());
@@ -78,17 +79,16 @@ class ObtainTokenAction implements ActionInterface, GatewayAwareInterface, ApiAw
         }
 
         $this->gateway->execute($renderTemplate = new RenderTemplate($this->templateName, array(
-            'publishable_key'   => $this->keys->getPublishableKey(),
-            "session_id"        => $model['session_id'],
-            'model'             => $model,
+            'publishable_key' => $this->keys->getPublishableKey(),
+            'session_id' => $model['session_id'],
+            'model' => $model,
         )));
-
 
         throw new HttpResponse($renderTemplate->getResult());
     }
 
     /**
-     * {@inheritDoc}
+     * {@inheritdoc}
      */
     public function supports($request)
     {
@@ -109,32 +109,55 @@ class ObtainTokenAction implements ActionInterface, GatewayAwareInterface, ApiAw
         Stripe::setApiKey($this->keys->getSecretKey());
 
         $rawUrl = $request->getToken()->getTargetUrl();
-        $separator = ObtainTokenAction::computeSeparator($rawUrl);
+        $separator = self::computeSeparator($rawUrl);
         $successUrl = "{$rawUrl}{$separator}checkout_status=completed";
 
         $rawUrl = $request->getToken()->getAfterUrl();
-        $separator = ObtainTokenAction::computeSeparator($rawUrl);
-        $cancelUrl  = "{$rawUrl}{$separator}checkout_status=canceled";
+        $separator = self::computeSeparator($rawUrl);
+        $cancelUrl = "{$rawUrl}{$separator}checkout_status=canceled";
+
+        if (!array_key_exists('plan', $model)) {
+            throw new LogicException('The subscription plan has to be set.');
+        }
+
+        // create a new pricing plan
+        if (null === $model['plan']) {
+            if (!isset($model['metadata']['productId']) && '' === $model['metadata']['productId']) {
+                throw new LogicException('The product id has to be set.');
+            }
+
+            $intervalsMap = [
+                '1 month' => 'month',
+                '3 months' => 'quarterly',
+                '1 year' => 'yearly',
+            ];
+
+            $plan = Plan::create([
+                'amount' => $model['amount'],
+                'currency' => $model['currency'],
+                'interval' => $intervalsMap[$model['interval']],
+                'product' => $model['metadata']['productId'],
+            ]);
+
+            $model['plan'] = $plan->id;
+        }
 
         $params = [
             'success_url' => $successUrl,
             'cancel_url' => $cancelUrl,
             'payment_method_types' => ['card'],
-            'submit_type' => Session::SUBMIT_TYPE_PAY,
-            'line_items' => $model['line_items'],
-            'payment_intent_data' => [
-                'metadata' => $model['metadata'] ?? ['payment_id' => $model['id']],
+            'mode' => 'subscription',
+            'subscription_data' => [
+                'items' => [[
+                    'plan' => $model['plan'],
+                ]],
+                'metadata' => [
+                    'client_reference_id' => $request->getToken()->getHash()
+                ]
             ],
             'client_reference_id' => $request->getToken()->getHash(),
+            'customer_email' => $model['metadata']['email'] ?? null
         ];
-
-        if (isset($model['customer_email'])) {
-            $params['customer_email'] = $model['customer_email'];
-        }
-
-        if (isset($model['payment_intent_data'])) {
-            $params['payment_intent_data'] = array_merge($params['payment_intent_data'], $model['payment_intent_data']);
-        }
 
         $session = Session::create($params);
 
@@ -156,5 +179,5 @@ class ObtainTokenAction implements ActionInterface, GatewayAwareInterface, ApiAw
         }
 
         return $separator;
-}
+    }
 }

@@ -17,7 +17,7 @@ class Keys
      * @param string $secret
      * @param string $endpointSecret the stripe's webHook secret key
      */
-    public function __construct(string $publishable, string $secret, string $endpointSecret)
+    public function __construct(string $publishable, string $secret, string $endpointSecret = '')
     {
         $this->publishable      = $publishable;
         $this->secret           = $secret;

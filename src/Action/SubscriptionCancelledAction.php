@@ -1,15 +1,10 @@
 <?php
-/**
- * Created by Bruno DA SILVA, working for Combodo
- * Date: 22/07/19
- * Time: 16:54.
- */
 
 namespace Combodo\StripeV3\Action;
 
 use Combodo\StripeV3\Exception\TokenNotFound;
-use Combodo\StripeV3\Model\StripePaymentDetails;
 use Combodo\StripeV3\Request\handleCheckoutCompletedEvent;
+use Combodo\StripeV3\Request\HandleSubscriptionCancelledEvent;
 use Payum\Core\Action\ActionInterface;
 use Payum\Core\Exception\LogicException;
 use Payum\Core\Exception\RequestNotSupportedException;
@@ -20,7 +15,7 @@ use Payum\Core\Request\GetToken;
 use Payum\Core\Security\TokenInterface;
 use Stripe\Event;
 
-class CheckoutCompletedEventAction implements ActionInterface, GatewayAwareInterface, CheckoutCompletedInformationProvider
+class SubscriptionCancelledAction implements ActionInterface, GatewayAwareInterface, SubscriptionCancelledInformationProvider
 {
     use GatewayAwareTrait;
 
@@ -47,16 +42,13 @@ class CheckoutCompletedEventAction implements ActionInterface, GatewayAwareInter
      */
     private function handleEvent(Event $event): void
     {
-        $checkoutSession = $event->data->object;
-        $tokenHash = $checkoutSession->client_reference_id;
+        $metadata = $event->data->object->metadata;
+        $tokenHash = $metadata->client_reference_id;
 
         $this->token = $this->findTokenByHash($tokenHash);
         $this->status = $this->findStatusByToken($this->token);
 
-        $this->status->markCaptured();
-        $payment = $this->status->getFirstModel();
-
-        $this->completePaymentDetails($payment, $checkoutSession->id);
+        $this->status->markCanceled();
     }
 
     /**
@@ -87,21 +79,6 @@ class CheckoutCompletedEventAction implements ActionInterface, GatewayAwareInter
         return $status;
     }
 
-    private function completePaymentDetails($payment, string $checkoutSessionId, string $paymentIntentId = ''): void
-    {
-        if ($payment instanceof StripePaymentDetails) {
-            $payment->setCheckoutSessionId($checkoutSessionId);
-            $payment->setPaymentIntentId($paymentIntentId);
-        } else {
-            //if the Payment instance does not provide special setter, wee try to use the details, but this need extra work to be handled correctly (see the in the symfony examples)
-            $details = $payment->getDetails();
-            $details['checkout_session_id'] = $checkoutSessionId;
-            $details['payment_intent_id'] = $paymentIntentId;
-
-            $payment->setDetails($details);
-        }
-    }
-
     public function getStatus(): ?GetBinaryStatus
     {
         return $this->status;
@@ -112,13 +89,8 @@ class CheckoutCompletedEventAction implements ActionInterface, GatewayAwareInter
         return $this->token;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function supports($request)
     {
-        return
-            $request instanceof handleCheckoutCompletedEvent
-            ;
+        return $request instanceof HandleSubscriptionCancelledEvent;
     }
 }
