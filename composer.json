@@ -2,7 +2,7 @@
     "name": "payhelper/stripe-sca-checkout",
     "description": "Provide SCA compatible Stripe integration.",
     "keywords": ["payment", "stripe", "sca", "payum"],
-    "license": "AGPLv3",
+    "license": "MIT",
     "authors": [
         {
             "name": "Bruno DA SILVA",
