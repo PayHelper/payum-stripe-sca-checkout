@@ -4,6 +4,7 @@ namespace Combodo\StripeV3\Action;
 
 use Combodo\StripeV3\Keys;
 use Combodo\StripeV3\Request\handleCheckoutCompletedEvent;
+use Combodo\StripeV3\Request\HandlePaymentIntentSucceededEvent;
 use Combodo\StripeV3\Request\HandleSubscriptionCancelledEvent;
 use Payum\Core\Action\ActionInterface;
 use Payum\Core\ApiAwareInterface;
@@ -114,6 +115,12 @@ class NotifyUnsafeAction implements ActionInterface, ApiAwareInterface, GatewayA
 
             case Event::CHECKOUT_SESSION_COMPLETED:
                 $request = new handleCheckoutCompletedEvent($event, handleCheckoutCompletedEvent::TOKEN_MUST_BE_KEPT);
+                $this->gateway->execute($request);
+
+                break;
+
+            case Event::PAYMENT_INTENT_SUCCEEDED:
+                $request = new HandlePaymentIntentSucceededEvent($event, HandlePaymentIntentSucceededEvent::TOKEN_MUST_BE_KEPT);
                 $this->gateway->execute($request);
 
                 break;

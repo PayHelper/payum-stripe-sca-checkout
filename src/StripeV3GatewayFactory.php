@@ -1,17 +1,16 @@
 <?php
+
 namespace Combodo\StripeV3;
 
-use Combodo\StripeV3\Action\Api\CreateTokenAction;
+use Combodo\StripeV3\Action\Api\CreatePaymentIntentAction;
 use Combodo\StripeV3\Action\Api\ObtainTokenAction;
 use Combodo\StripeV3\Action\Api\PollFullfilledPaymentsAction;
-use Combodo\StripeV3\Action\AuthorizeAction;
 use Combodo\StripeV3\Action\CheckoutCompletedEventAction;
 use Combodo\StripeV3\Action\ConvertPaymentAction;
 use Combodo\StripeV3\Action\CaptureAction;
-use Combodo\StripeV3\Action\FindLostPaymentsAction;
 use Combodo\StripeV3\Action\HandleLostPaymentsAction;
-use Combodo\StripeV3\Action\NotifyAction;
 use Combodo\StripeV3\Action\NotifyUnsafeAction;
+use Combodo\StripeV3\Action\PaymentIntentSucceededAction;
 use Combodo\StripeV3\Action\RefundAction;
 use Combodo\StripeV3\Action\StatusAction;
 use Combodo\StripeV3\Action\SubscriptionCancelledAction;
@@ -22,8 +21,10 @@ class StripeV3GatewayFactory extends GatewayFactory
 {
     const FACTORY_NAME = 'stripe_sca_checkout';
 
+    const PAYMENT_METHOD_PAYMENT_INTENT = 'pay';
+
     /**
-     * {@inheritDoc}
+     * {@inheritdoc}
      */
     protected function populateConfig(ArrayObject $config)
     {
@@ -44,24 +45,31 @@ class StripeV3GatewayFactory extends GatewayFactory
             'payum.action.notify_unsafe' => new NotifyUnsafeAction(),                   // modified standard action to handle "unsafe" ie without the token webhooks
 
             'payum.action.poll_fullfilled_payements' => new PollFullfilledPaymentsAction(), // custom action
-            'payum.action.handle_lost_payements'     => new HandleLostPaymentsAction(),     // custom action
-            'payum.action.chackout_completed'        => new CheckoutCompletedEventAction(), // custom action
-            'payum.action.subscription_cancelled'    => new SubscriptionCancelledAction(), // custom action
-            'payum.action.refund'                    => new RefundAction(),
+            'payum.action.handle_lost_payements' => new HandleLostPaymentsAction(),     // custom action
+            'payum.action.chackout_completed' => new CheckoutCompletedEventAction(), // custom action
+            'payum.action.subscription_cancelled' => new SubscriptionCancelledAction(), // custom action
+            'payum.action.payment_intent_succeeded' => new PaymentIntentSucceededAction(), // custom action
+            'payum.action.create_payment_intent' => new CreatePaymentIntentAction(), // custom action
+            'payum.action.refund' => new RefundAction(),
         ]);
 
         if (false == $config['payum.api']) {
             $config['payum.default_options'] = [
                 'publishableKey' => '',
                 'secretKey' => '',
+                'endpointSecret' => '',
             ];
             $config->defaults($config['payum.default_options']);
-            $config['payum.required_options'] = ['publishableKey', 'secretKey'];
+            $config['payum.required_options'] = ['publishableKey', 'secretKey', 'endpointSecret'];
 
             $config['payum.api'] = function (ArrayObject $config) {
                 $config->validateNotEmpty($config['payum.required_options']);
 
-                return new Keys($config['publishableKey'], $config['secretKey']);
+                return new Keys(
+                    $config['publishableKey'],
+                    $config['secretKey'],
+                    $config['endpointSecret'],
+                );
             };
         }
 

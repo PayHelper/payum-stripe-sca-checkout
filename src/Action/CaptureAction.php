@@ -1,9 +1,12 @@
 <?php
+
 namespace Combodo\StripeV3\Action;
 
 use Combodo\StripeV3\Exception\TokenNotFound;
+use Combodo\StripeV3\Request\Api\CreatePaymentIntent;
 use Combodo\StripeV3\Request\handleCheckoutCompletedEvent;
 use Combodo\StripeV3\Request\PollFullfilledPayments;
+use Combodo\StripeV3\StripeV3GatewayFactory;
 use Payum\Core\Action\ActionInterface;
 use Payum\Core\Bridge\Spl\ArrayObject;
 use Payum\Core\GatewayAwareInterface;
@@ -11,7 +14,6 @@ use Payum\Core\GatewayAwareTrait;
 use Payum\Core\Reply\HttpRedirect;
 use Payum\Core\Request\Capture;
 use Payum\Core\Exception\RequestNotSupportedException;
-use Combodo\StripeV3\Request\Api\CreateCharge;
 use Combodo\StripeV3\Request\Api\ObtainToken;
 use Payum\Core\Request\GetHttpRequest;
 use Payum\Core\Security\TokenInterface;
@@ -21,7 +23,7 @@ class CaptureAction implements ActionInterface, GatewayAwareInterface
     use GatewayAwareTrait;
 
     /**
-     * {@inheritDoc}
+     * {@inheritdoc}
      *
      * @param Capture $request
      */
@@ -30,6 +32,15 @@ class CaptureAction implements ActionInterface, GatewayAwareInterface
         RequestNotSupportedException::assertSupports($this, $request);
 
         $model = ArrayObject::ensureArrayObject($request->getModel());
+
+        if (StripeV3GatewayFactory::PAYMENT_METHOD_PAYMENT_INTENT === $model['method']) {
+            $paymentIntent = new CreatePaymentIntent($request->getToken());
+            $paymentIntent->setModel($model);
+
+            $this->gateway->execute($paymentIntent);
+
+            return;
+        }
 
         if ($model['status']) {
             return;
@@ -48,7 +59,7 @@ class CaptureAction implements ActionInterface, GatewayAwareInterface
     }
 
     /**
-     * {@inheritDoc}
+     * {@inheritdoc}
      */
     public function supports($request)
     {
@@ -59,7 +70,7 @@ class CaptureAction implements ActionInterface, GatewayAwareInterface
     }
 
     /**
-     * once the customer has paid, he is redirected here, so first, let's check if he has effectively paid
+     * once the customer has paid, he is redirected here, so first, let's check if he has effectively paid.
      */
     private function handleIfPaymentDone(TokenInterface $token): void
     {
@@ -74,7 +85,7 @@ class CaptureAction implements ActionInterface, GatewayAwareInterface
     private function pollFullfilledPayments(TokenInterface $token): void
     {
         $eventsFilter = [
-            'created'   => [
+            'created' => [
                 'gte' => strtotime('-15 minutes'),
             ],
         ];

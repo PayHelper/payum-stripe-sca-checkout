@@ -2,6 +2,7 @@
 
 namespace Combodo\StripeV3\Action\Api;
 
+use Combodo\StripeV3\Request\Api\CreatePaymentIntent;
 use Payum\Core\Action\ActionInterface;
 use Payum\Core\ApiAwareInterface;
 use Payum\Core\ApiAwareTrait;
@@ -11,18 +12,20 @@ use Payum\Core\Exception\RequestNotSupportedException;
 use Payum\Core\GatewayAwareInterface;
 use Payum\Core\GatewayAwareTrait;
 use Payum\Core\Reply\HttpResponse;
-use Payum\Core\Request\RenderTemplate;
 use Combodo\StripeV3\Keys;
 use Combodo\StripeV3\Request\Api\ObtainToken;
 use Stripe\Checkout\Session;
+use Stripe\Customer;
+use Stripe\PaymentIntent;
 use Stripe\Plan;
 use Stripe\Stripe;
+use Stripe\Subscription;
 
 /**
  * @property Keys $keys alias of $api
  * @property Keys $api
  */
-class ObtainTokenAction implements ActionInterface, GatewayAwareInterface, ApiAwareInterface
+class CreatePaymentIntentAction implements ActionInterface, GatewayAwareInterface, ApiAwareInterface
 {
     use ApiAwareTrait {
         setApi as _setApi;
@@ -41,13 +44,8 @@ class ObtainTokenAction implements ActionInterface, GatewayAwareInterface, ApiAw
      */
     protected $keys;
 
-    /**
-     * @param string $templateName
-     */
-    public function __construct($templateName)
+    public function __construct()
     {
-        $this->templateName = $templateName;
-
         $this->apiClass = Keys::class;
     }
 
@@ -72,19 +70,65 @@ class ObtainTokenAction implements ActionInterface, GatewayAwareInterface, ApiAw
 
         $model = ArrayObject::ensureArrayObject($request->getModel());
 
-        if (empty($model['session_id'])) {
-            $session = $this->obtainSession($request, $model);
-
-            $model['session_id'] = $session->id;
+        if (null === $model['plan'] && !isset($model['metadata']['productId']) && '' === $model['metadata']['productId']) {
+            throw new LogicException('The product id has to be set.');
         }
 
-        $this->gateway->execute($renderTemplate = new RenderTemplate($this->templateName, array(
-            'publishable_key' => $this->keys->getPublishableKey(),
-            'session_id' => $model['session_id'],
-            'model' => $model,
-        )));
+        if (isset($model['metadata']['payment_intent_id']) && !empty($model['metadata']['payment_intent_id'])) {
+            Stripe::setApiKey($this->keys->getSecretKey());
 
-        throw new HttpResponse($renderTemplate->getResult());
+            $intervalsMap = [
+                '1 month' => 'month',
+                '1 year' => 'year',
+            ];
+
+            $params = [
+                'client_reference_id' => $request->getToken()->getHash(),
+                'plan' => $model['plan'] ?? null,
+                'order_id' => $model['order_id'],
+                'productId' => $model['metadata']['productId'] ?? null,
+            ];
+
+            if ('3 months' === $model['interval']) {
+                $params['interval'] = 'month';
+                $params['interval_count'] = 3;
+            } else {
+                $params['interval'] = $intervalsMap[$model['interval']];
+            }
+
+            PaymentIntent::update($model['metadata']['payment_intent_id'], [
+                'metadata' => $params,
+            ]);
+
+//            // create subscription here?
+//            // create Customer based on PaymentIntent and subscription
+//            $customer = Customer::create([
+//                'email' => $model['metadata']['email'],
+//                'payment_method' => $paymentIntent->payment_method,
+//                'invoice_settings' => [
+//                    'default_payment_method' => $paymentIntent->payment_method,
+//                ],
+//            ]);
+//
+//            if (!isset($model['plan'])) {
+//                $plan = Plan::create([
+//                    'amount' => $paymentIntent->amount,
+//                    'currency' => $paymentIntent->currency,
+//                    'interval' => $paymentIntent->metadata->interval,
+//                    'product' => $paymentIntent->metadata->productId,
+//                ]);
+//
+//                $model['plan'] = $plan->id;
+//            }
+//
+//            Subscription::create([
+//                'customer' => $customer->id,
+//                'items' => [['plan' => $model['plan']]],
+//                'expand' => ['latest_invoice.payment_intent'],
+//            ]);
+        }
+
+        throw new HttpResponse('');
     }
 
     /**
@@ -93,7 +137,7 @@ class ObtainTokenAction implements ActionInterface, GatewayAwareInterface, ApiAw
     public function supports($request)
     {
         return
-            $request instanceof ObtainToken &&
+            $request instanceof CreatePaymentIntent &&
             $request->getModel() instanceof \ArrayAccess
         ;
     }
@@ -128,23 +172,16 @@ class ObtainTokenAction implements ActionInterface, GatewayAwareInterface, ApiAw
 
             $intervalsMap = [
                 '1 month' => 'month',
-                '1 year' => 'year',
+                '3 months' => 'quarterly',
+                '1 year' => 'yearly',
             ];
 
-            $planParams = [
+            $plan = Plan::create([
                 'amount' => $model['amount'],
                 'currency' => $model['currency'],
-                'productId' => $model['metadata']['productId'],
-            ];
-
-            if ('3 months' === $model['interval']) {
-                $planParams['interval'] = 'month';
-                $planParams['interval_count'] = 3;
-            } else {
-                $planParams['interval'] = $intervalsMap[$model['interval']];
-            }
-
-            $plan = Plan::create($planParams);
+                'interval' => $intervalsMap[$model['interval']],
+                'product' => $model['metadata']['productId'],
+            ]);
 
             $model['plan'] = $plan->id;
         }
